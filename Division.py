@@ -1,7 +1,7 @@
 from Types import ClientModel, DivisionData, APIResult
 
 class Division:
-    def __init__(self, client: ClientModel, data: DivisionData):
+    def __init__(self, client, data: DivisionData):
         self.id = data.id
         self.name = data.name
         self.client = client

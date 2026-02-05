@@ -1,11 +1,15 @@
+import hmac
+import json
 import os.path
 import pickle
-
-from Division import Division
-from Types import *
-import datetime
-import hashlib
 import requests
+
+from oauthlib.oauth2 import BackendApplicationClient
+from requests_oauthlib import OAuth2Session
+from Fieldset import Fieldset
+from Types import *
+from Division import Division
+import datetime
 from urllib.parse import urlparse, urljoin
 
 
@@ -28,6 +32,12 @@ class Client:
                 success=False,
                 error=TMError.CredentialsExpired
             )
+
+        def _request_bearer():
+            bac = BackendApplicationClient(client_id=auth.client_id)
+            oauth = OAuth2Session(client=bac)
+            token = oauth.fetch_token(token_url=self.connection_string, client_secret=auth.client_secret)
+            return token
 
         def request_bearer() -> requests.Response:
             print(f"DEBUG: client is requesting a new bearer")
@@ -68,10 +78,16 @@ class Client:
 
 
     @staticmethod
-    def _pickle_bearer(res: BearerToken):
-        assert isinstance(res, BearerToken)
+    def _pickle_bearer(token: BearerToken):
+        assert isinstance(token, BearerToken)
         with open("latest_bearer.pickle", 'wb') as fout:
-            pickle.dump(res, fout, pickle.HIGHEST_PROTOCOL)
+            pickle.dump(token, fout, pickle.HIGHEST_PROTOCOL)
+        with open("latest_bearer.json", 'w') as fout:
+            json.dump({
+                "access_token": token.access_token,
+                "token_type": token.token_type,
+                "expires_in": token.expires_in.seconds
+            }, fout)
 
     @staticmethod
     def _unpickle_bearer() -> BearerToken | None:
@@ -87,6 +103,8 @@ class Client:
     def _remove_pickle():
         if os.path.exists("latest_bearer.pickle"):
             os.remove("latest_bearer.pickle")
+        if os.path.exists("latest_bearer.json"):
+            os.remove("latest_bearer.json")
 
     def _update_bearer(self) -> BearerResult:
         try:
@@ -130,7 +148,7 @@ class Client:
             if not self._bearer_is_viable(bearer_token):
                 self._remove_pickle()
             else:
-                print(f"DEBUG: Client using pickled bearer")
+                self.bearer_token = bearer_token
                 self.bearer_from_pickle = True
                 return BearerSuccess(
                     success=True,
@@ -143,7 +161,8 @@ class Client:
     def get_divisions(self) -> APIResult:
         if not (rs:=self.get("/api/divisions")).success:
             return rs
-        data = [Division(self, div) for div in rs.data["divisions"]]
+        data = [DivisionData(id=div["id"], name=div["name"]) for div in rs.data["divisions"]]
+        data = [Division(self, div_dat) for div_dat in data]
         return APISuccess(
             success=rs.success,
             data=data,
@@ -151,12 +170,10 @@ class Client:
         )
 
     def get_fieldsets(self) -> APIResult:
-        if not (rs:=self.get("/api/divisions")).success:
+        if not (rs:=self.get("/api/fieldsets")).success:
             return rs
-        data = [FieldsetData(
-            id=div.id,
-            name=div.name
-        ) for div in rs.data["fieldSets"]]
+        data = [FieldsetData(id=div["id"], name=div["name"]) for div in rs.data["fieldSets"]]
+        data = [Fieldset(self, fs_data) for fs_data in data]
         return APISuccess(
             success=rs.success,
             data=data,
@@ -172,21 +189,31 @@ class Client:
     def get_event_info(self) -> APIResult:
         return self.get("/api/event")
 
-    def get_authorization_headers(self, url, method) -> dict:
-        tm_date = datetime.datetime.now().date().replace(tzinfo=datetime.timezone.utc)
+    @staticmethod
+    def utc_datetime_to_rfc1123_str(dt):
+        return dt.strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    @staticmethod
+    def rfc1123_str_to_utc_datetime(dt_str):
+        fmt = "%a, %d %b %Y %H:%M:%S GMT"
+        return datetime.datetime.strptime(dt_str, fmt)
+
+    def get_authorization_headers(self, url, method = "GET") -> dict:
+        # TM dates look like "Wed, 04 Feb 2026 06:48:25 GMT"
+        tm_date = self.utc_datetime_to_rfc1123_str(datetime.datetime.now(datetime.timezone.utc))
 
         parsed_url = urlparse(url)
 
-        string_to_sign = "".join([i + "\n" for i in [
+        string_to_sign = "\n".join([
             method,
-            parsed_url[2] + parsed_url[3] + parsed_url[4],
+            parsed_url.path + parsed_url.query,
             f"token:{self.bearer_token.access_token}",
-            f"host:{parsed_url.hostname}",
+            f"host:{parsed_url.netloc}",
             f"x-tm-date:{tm_date}"
-        ]])
+        ])
+        string_to_sign += "\n"
 
-        signature = hashlib.new("sha256")
-        signature.update(self.connection_args.clientAPIKey.encode("UTF-8"))
+        signature = hmac.new(key=self.connection_args.clientAPIKey.encode("UTF-8"), digestmod="sha256")
         signature.update(string_to_sign.encode("UTF-8"))
         signature = signature.hexdigest()
 
@@ -194,7 +221,7 @@ class Client:
             "Authorization": f"Bearer {self.bearer_token.access_token}",
             "x-tm-date": f"{tm_date}",
             "x-tm-signature": f"{signature}",
-            "Host": f"{parsed_url.hostname}"
+            "Host": f"{parsed_url.netloc}"
         }
 
     def connect(self) -> ConnectionResult:
@@ -233,14 +260,14 @@ class Client:
                 error=rs.error
             )
 
-        url = urljoin(path, self.connection_args.address)
+        url = urljoin(self.connection_args.address, path)
         headers = { "Content-Type": "application/json" }
 
         try:
             headers |= self.get_authorization_headers(url, "GET",)
             if str(url) in self.endpoint_cache.keys():
                 last_modified = self.endpoint_cache[str(url)].last_modified
-                headers |= { "If-Modified-Since": last_modified }
+                headers |= { "If-Modified-Since": self.utc_datetime_to_rfc1123_str(last_modified) }
 
             response = requests.get(url, headers=headers)
 
@@ -265,10 +292,10 @@ class Client:
                     )
                 case 200:
                     # Update the endpoint cache
-                    if response.headers.get("Last-Modified"):  # What should this really be in Python?
+                    if "Last-Modified" in response.headers.keys():
                         self.endpoint_cache[str(url)] = EndpointCacheMember(
                             data=response.json(),
-                            last_modified=response.headers.get("Last-Modified")
+                            last_modified=self.rfc1123_str_to_utc_datetime(response.headers.get("Last-Modified"))
                         )
                     return APISuccess(
                         success=True,

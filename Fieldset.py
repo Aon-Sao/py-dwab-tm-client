@@ -1,14 +1,11 @@
-# https://github.com/brenapp/vex-tm-client/blob/eb106aff4e4ea47467b51a08dd76dfa9bde1db6e/src/Fieldset.ts#L182
 import asyncio
 import json
 from asyncio import Task
 from contextlib import suppress
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
-import websockets.exceptions
+import websockets
 from pubsub import pub
-from websockets import InvalidURI, InvalidHandshake
-from websockets.asyncio.client import connect, ClientConnection
 
 from Types import ClientModel, FieldsetData, Field, APIResult, APISuccess, numeric, FieldsetEvent, FieldsetState, \
     ActiveMatchType, AudienceDisplay, FieldsetMatchActiveNone, QueueState, FieldsetMatchActiveTimeout, \
@@ -22,7 +19,7 @@ class Fieldset:
         self.id: numeric = data.id
         self.name: str = data.name
         self.client = client
-        self.websocket: ClientConnection | None = None
+        self.websocket: websockets.ClientConnection | None = None
         self.events = None
         self.state: FieldsetState = FieldsetState(
             match=FieldsetMatchActiveNone(type=ActiveMatchType.NONE),
@@ -32,9 +29,10 @@ class Fieldset:
     def get_fields(self) -> APIResult:
         rs: APIResult = self.client.get(f"/api/fieldsets/{self.id}/fields")
         if rs.success:
-            return APISuccess[Field](
+            data = [Field(id=f["id"], name=f["name"]) for f in rs.data["fields"]]
+            return APISuccess[list[Field]](
                 success=True,
-                data=rs.data["fields"],
+                data=data,
                 cached=rs.cached
             )
         return rs
@@ -101,11 +99,20 @@ class Fieldset:
             return rs
 
         # url protocol should be "ws"
-        uri = urljoin(self.client.connection_args.address, f"/api/fieldsets/{self.id}")
+        base = urlparse(self.client.connection_args.address)
+        base = base._replace(scheme="ws")
+        path = f"/api/fieldsets/{self.id}"
+        base = base._replace(path=path)
+        uri = base.geturl()
         auth_headers = self.client.get_authorization_headers(uri)
 
+        # After examining the packets with Wireshark, I noticed duplication of the Host header.
+        # The websockets / websocket-client libraries both append it without checking for it.
+        # DWAB's Tournament Manager rejects with 401 unless I deduplicate this header.
+        del auth_headers["Host"]
+
         try:
-            socket = await connect(uri, additional_headers=auth_headers)
+            socket = await websockets.connect(uri, additional_headers=auth_headers)
             self.websocket = socket
             # Should live in the event loop forever
             asyncio.create_task(self.listen_loop())
@@ -117,13 +124,13 @@ class Fieldset:
                 data=socket,
                 cached=False
             )
-        except InvalidURI as e:
+        except websockets.exceptions.InvalidURI as e:
             return APIFailure(
                 success=False,
                 error=TMError.WebSocketInvalidURL,
                 error_details=e
             )
-        except OSError | InvalidHandshake | TimeoutError as e:
+        except TimeoutError as e:  # | OSError | InvalidHandshake ...but python complains about inheritance
             return APIFailure(
                 success=False,
                 error=TMError.WebSocketError,
