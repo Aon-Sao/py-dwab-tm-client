@@ -1,16 +1,15 @@
+from Types import *
+from Fieldset import Fieldset
+from Division import Division
+
+from urllib.parse import urlparse, urljoin
+
 import hmac
 import json
 import os.path
 import pickle
 import requests
-
-from oauthlib.oauth2 import BackendApplicationClient
-from requests_oauthlib import OAuth2Session
-from Fieldset import Fieldset
-from Types import *
-from Division import Division
 import datetime
-from urllib.parse import urlparse, urljoin
 
 
 class Client:
@@ -32,12 +31,6 @@ class Client:
                 success=False,
                 error=TMError.CredentialsExpired
             )
-
-        def _request_bearer():
-            bac = BackendApplicationClient(client_id=auth.client_id)
-            oauth = OAuth2Session(client=bac)
-            token = oauth.fetch_token(token_url=self.connection_string, client_secret=auth.client_secret)
-            return token
 
         def request_bearer() -> requests.Response:
             print(f"DEBUG: client is requesting a new bearer")

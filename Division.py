@@ -1,4 +1,4 @@
-from Types import ClientModel, DivisionData, APIResult
+from Types import DivisionData, APIResult
 
 class Division:
     def __init__(self, client, data: DivisionData):
