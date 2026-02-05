@@ -2,9 +2,9 @@ import datetime
 from abc import ABC
 from decimal import Decimal
 from enum import StrEnum, Enum
-from typing import Literal, Callable, Optional, Any, Union, List
+from typing import Literal, Callable, Optional, Any, Union
 
-from pydantic import BaseModel, InstanceOf, ConfigDict
+from pydantic import BaseModel, InstanceOf, ConfigDict, computed_field
 
 numeric = int | float | Decimal
 
@@ -24,8 +24,11 @@ class TMError(StrEnum):
 class RemoteAuthorizationArgs(BaseModel):
     client_id: str
     client_secret: str
-    grant_type: Literal["client_credentials"]
     expiration_date: datetime.datetime
+    @computed_field
+    @property
+    def grant_type(self) -> str: return "client_credentials"
+
 
 class ManualAuthorizationConfig(BaseModel):
     getBearer: Callable[[], BearerResult]
@@ -33,6 +36,9 @@ class ManualAuthorizationConfig(BaseModel):
 
 class AuthorizationArgs(BaseModel):
     authorization: RemoteAuthorizationArgs | ManualAuthorizationConfig
+
+    def __str__(self):
+        return self.authorization.__str__()
 
 class ClientArgs(BaseModel):
     address: str
@@ -46,19 +52,27 @@ class BearerToken(BaseModel):
     expires_in: datetime.timedelta
 
 class BearerSuccess(BaseModel):
-    success: Literal[True]
+    @computed_field
+    @property
+    def success(self) -> bool: return True
     token: BearerToken
 class BearerFailure(BaseModel):
-    success: Literal[False]
+    @computed_field
+    @property
+    def success(self) -> bool: return False
     error: InstanceOf[TMError]
     error_details: Optional[Any] = None
 
 BearerResult = Union[BearerSuccess, BearerFailure]
 
 class ConnectionSuccess(BaseModel):
-    success: Literal[True]
+    @computed_field
+    @property
+    def success(self) -> bool: return True
 class ConnectionFailure(BaseModel):
-    success: Literal[False]
+    @computed_field
+    @property
+    def success(self) -> bool: return False
     origin: Literal["bearer"] | Literal["connection"]
     error: InstanceOf[TMError]
     error_details: Optional[Any] = None
@@ -66,11 +80,15 @@ class ConnectionFailure(BaseModel):
 ConnectionResult =  Union[ConnectionSuccess, ConnectionFailure]
 
 class APISuccess[T](BaseModel):
-    success: Literal[True]
+    @computed_field
+    @property
+    def success(self) -> bool: return True
     data: T
     cached: bool
 class APIFailure(BaseModel):
-    success: Literal[False]
+    @computed_field
+    @property
+    def success(self) -> bool: return False
     error: InstanceOf[TMError]
     error_details: Optional[Any] = None
 
@@ -111,31 +129,56 @@ class FieldsetData(BaseModel):
     id: numeric
     name: str
 
-FieldID = numeric | None
+FieldID = numeric
 
 class FieldsetEvent(BaseModel, ABC):
-    type: str
+    pass
 
 class FieldMatchAssigned(FieldsetEvent):
-    type: Literal["fieldMatchAssigned"]
-    field_id: FieldID
-    match: MatchTuple
+    @computed_field
+    @property
+    def type(self) -> str: return "fieldMatchAssigned"
+    field_id: FieldID | None
+    match: MatchTuple | None
+
+    def __str__(self):
+        return f"{self.__class__.__name__}\n\tfield_id: {self.field_id}\n\tmatch: {self.match}"
 
 class FieldActivated(FieldsetEvent):
-    type: Literal["fieldActivated"]
-    field_id: FieldID
+    @computed_field
+    @property
+    def type(self) -> str: return "fieldActivated"
+    field_id: FieldID | None
+
+    def __str__(self):
+        return f"{self.__class__.__name__}\n\tfield_id: {self.field_id}"
 
 class MatchStarted(FieldsetEvent):
-    type: Literal["matchStarted"]
-    field_id: FieldID
+    @computed_field
+    @property
+    def type(self) -> str: return "matchStarted"
+    field_id: FieldID | None
+
+    def __str__(self):
+        return f"{self.__class__.__name__}\n\tfield_id: {self.field_id}"
 
 class MatchStopped(FieldsetEvent):
-    type: Literal["matchStopped"]
-    field_id: FieldID
+    @computed_field
+    @property
+    def type(self) -> str: return "matchStopped"
+    field_id: FieldID | None
+
+    def __str__(self):
+        return f"{self.__class__.__name__}\n\tfield_id: {self.field_id}"
 
 class AudienceDisplayChanged(FieldsetEvent):
-    type: Literal["audienceDisplayChanged"]
-    display: AudienceDisplay
+    @computed_field
+    @property
+    def type(self) -> str: return "audienceDisplayChanged"
+    display: AudienceDisplay | None
+
+    def __str__(self):
+        return f"{self.__class__.__name__}\n\tfield_id: {self.display.name}"
 
 class AudienceDisplay(StrEnum):
     Blank = "BLANK"
@@ -151,61 +194,101 @@ class AudienceDisplay(StrEnum):
     Slides = "AWARD"
     Inspection = "INSPECTION"
 
-FieldsetEventTypes = [
-    FieldMatchAssigned,
-    FieldActivated,
-    MatchStarted,
-    MatchStopped,
-    AudienceDisplayChanged
-]
+FieldsetEventTypes = (
+    "fieldMatchAssigned",
+    "fieldActivated",
+    "matchStarted",
+    "matchStopped",
+    "audienceDisplayChanged"
+)
 
 class FieldsetCommand(BaseModel, ABC):
-    cmd: str
+    pass
 
 class StartMatch(FieldsetCommand):
-    cmd: Literal["start"]
+    @computed_field
+    @property
+    def cmd(self) -> str: return "start"
     field_id: numeric
+
+    def __str__(self):
+        return f"{self.__class__.__name__} on field_id: {self.field_id}"
 
 class EndMatchEarly(FieldsetCommand):
-    cmd: Literal["endEarly"]
+    @computed_field
+    @property
+    def cmd(self) -> str: return "endEarly"
     field_id: numeric
+
+    def __str__(self):
+        return f"{self.__class__.__name__} on field_id: {self.field_id}"
 
 class AbortMatch(FieldsetCommand):
-    cmd: Literal["abort"]
+    @computed_field
+    @property
+    def cmd(self) -> str: return "abort"
     field_id: numeric
+
+    def __str__(self):
+        return f"{self.__class__.__name__} on field_id: {self.field_id}"
 
 class ResetTimer(FieldsetCommand):
-    cmd: Literal["reset"]
+    @computed_field
+    @property
+    def cmd(self) -> str: return "reset"
     field_id: numeric
 
+    def __str__(self):
+        return f"{self.__class__.__name__} on field_id: {self.field_id}"
+
 class QueuePreviousMatch(FieldsetCommand):
-    cmd: Literal["queuePrevMatch"]
+    @computed_field
+    @property
+    def cmd(self) -> str: return "queuePrevMatch"
+
+    def __str__(self):
+        return f"{self.__class__.__name__}"
 
 class QueueNextMatch(FieldsetCommand):
-    cmd: Literal["queueNextMatch"]
+    @computed_field
+    @property
+    def cmd(self) -> str: return "queueNextMatch"
+
+    def __str__(self):
+        return f"{self.__class__.__name__}"
 
 class QueueSkills(FieldsetCommand):
-    cmd: Literal["queueSkills"]
+    @computed_field
+    @property
+    def cmd(self) -> str: return "queueSkills"
     skills_id: QueueSkillsType
 
+    def __str__(self):
+        return f"{self.__class__.__name__} with skills_id: {self.skills_id}"
+
 class SetAudienceDisplay(FieldsetCommand):
-    cmd: Literal["setAudienceDisplay"]
+    @computed_field
+    @property
+    def cmd(self) -> str: return "setAudienceDisplay"
     display: AudienceDisplay
+
+    def __str__(self):
+        return f"{self.__class__.__name__} to {self.display.name}"
 
 class QueueSkillsType(Enum):
     Programming = 1
     Driver = 2
 
-FieldsetCommandTypes = [
-    StartMatch,
-    EndMatchEarly,
-    AbortMatch,
-    ResetTimer,
-    QueuePreviousMatch,
-    QueueNextMatch,
-    QueueSkills,
-    SetAudienceDisplay
-]
+FieldsetCommandTypes = (
+    "start",
+    "endEarly",
+    "abort",
+    "reset",
+    "queuePrevMatch",
+    "queueNextMatch",
+    "queueSkills",
+    "setAudienceDisplay"
+)
 
 class ActiveMatchType(Enum):
     NONE = 0
@@ -217,32 +300,35 @@ class QueueState(Enum):
     Running = 1
     Stopped = 2
 
-class FieldsetMatch(BaseModel, ABC):
-    type: ActiveMatchType
-
-class FieldsetMatchActiveNone(FieldsetMatch):
-    type: Literal[ActiveMatchType.NONE]
-class FieldsetMatchActiveTimeout(FieldsetMatch):
-    type: Literal[ActiveMatchType.Timeout]
+class FieldsetMatchActiveNone(BaseModel):
+    @computed_field
+    @property
+    def type(self) -> ActiveMatchType: return ActiveMatchType.NONE
+class FieldsetMatchActiveTimeout(BaseModel):
+    @computed_field
+    @property
+    def type(self) -> ActiveMatchType: return ActiveMatchType.Timeout
     state: QueueState
     field_id: numeric
     active: bool
-class FieldsetMatchActiveMatch(FieldsetMatch):
-    type: Literal[ActiveMatchType.Match]
+class FieldsetMatchActiveMatch(BaseModel):
+    @computed_field
+    @property
+    def type(self) -> ActiveMatchType: return ActiveMatchType.Match
     state: QueueState
     match: MatchTuple
     field_id: numeric
     active: bool
 
+FieldsetMatch = Union[
+    FieldsetMatchActiveNone,
+    FieldsetMatchActiveTimeout,
+    FieldsetMatchActiveMatch
+]
+
 class FieldsetState(BaseModel):
     match: FieldsetMatch
     audience_display: AudienceDisplay
-
-class FieldsetEvents(BaseModel):
-    # https://github.com/brenapp/vex-tm-client/blob/eb106aff4e4ea47467b51a08dd76dfa9bde1db6e/src/Fieldset.ts#L159
-    pass
-
-# https://github.com/brenapp/vex-tm-client/blob/eb106aff4e4ea47467b51a08dd76dfa9bde1db6e/src/Fieldset.ts#L167
 
 class MatchState(StrEnum):
     Unplayed = "UNPLAYED"
@@ -275,6 +361,14 @@ class MatchTuple(BaseModel):
     round: int
     instance: int
     match: int
+
+    def __str__(self):
+        return f"{self.__class__.__name__}\n\t" + \
+            f"session: {self.session}\n\t" + \
+            f"division: {self.division}\n\t" + \
+            f"round: {self.round}\n\t" + \
+            f"instance: {self.instance}\n\t" + \
+            f"match: {self.match}"
 
 class Match(BaseModel):
     class MatchInfo(BaseModel):

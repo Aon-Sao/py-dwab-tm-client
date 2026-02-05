@@ -8,20 +8,17 @@ from Types import BearerResult, ClientArgs, BearerFailure, TMError, BearerToken,
 
 
 class Bearer:
-    def __init__(self, conn_str: str, conn_args: ClientArgs):
-        self.conn_str = conn_str
-        self.conn_args = conn_args
-        self.token = None
-        self.from_pickle = False
+    def __init__(self: Bearer, conn_str: str, conn_args: ClientArgs):
+        self.conn_str: str = conn_str
+        self.conn_args: ClientArgs = conn_args
+        self.token: BearerToken | None = None
+        self.from_pickle: bool = False
 
-    def fetch_new(self) -> BearerResult:
+    def fetch_new(self: Bearer) -> BearerResult:
         if hasattr((auth := self.conn_args.authorization_args.authorization), "getBearer"):
             return auth.getBearer()
         if auth.expiration_date < datetime.datetime.now(datetime.UTC):
-            return BearerFailure(
-                success=False,
-                error=TMError.CredentialsExpired
-            )
+            return BearerFailure(error=TMError.CredentialsExpired)
 
         def request_token() -> requests.Response:
             headers = {
@@ -36,17 +33,11 @@ class Bearer:
 
         if not (response := request_token()).ok:
             if response.json()["error"] == "invalid_client":
-                return BearerFailure(
-                    success=False,
-                    error=TMError.CredentialsInvalid
-                )
+                return BearerFailure(error=TMError.CredentialsInvalid)
             else:
-                return BearerFailure(
-                    success=False,
-                    error=TMError.CredentialsError
-                )
+                return BearerFailure(error=TMError.CredentialsError)
         else:
-            bearer = BearerToken(
+            bearer: BearerToken = BearerToken(
                 access_token=response.json()["access_token"],
                 token_type=response.json()["token_type"],
                 # Assuming number of seconds
@@ -54,16 +45,14 @@ class Bearer:
             )
 
             self.pickle_bearer(bearer)
-            return BearerSuccess(
-                success=True,
-                token=bearer
-            )
+            return BearerSuccess(token=bearer)
 
     @staticmethod
-    def pickle_bearer(token: BearerToken):
+    def pickle_bearer(token: BearerToken) -> None:
         assert isinstance(token, BearerToken)
         with open("latest_bearer.pickle", 'wb') as fout:
             pickle.dump(token, fout, pickle.HIGHEST_PROTOCOL)
+        return None
 
     @staticmethod
     def unpickle_bearer() -> BearerToken | None:
@@ -76,46 +65,37 @@ class Bearer:
         return None
 
     @staticmethod
-    def remove_pickle():
+    def remove_pickle() -> None:
         if os.path.exists("latest_bearer.pickle"):
             os.remove("latest_bearer.pickle")
+        return None
 
-    def update_bearer(self) -> BearerResult:
+    def update_bearer(self: Bearer) -> BearerResult:
         try:
-            bearer_result = self.fetch_new()
+            bearer_result: BearerResult = self.fetch_new()
             if not bearer_result.success:
                 return bearer_result
             self.token = bearer_result.token
             self.from_pickle = False
-            return BearerSuccess(
-                success=True,
-                token=bearer_result.token
-            )
+            return BearerSuccess(token=bearer_result.token)
         except Exception as e:
-            return BearerFailure(
-                success=False,
-                error=TMError.CredentialsError,
-                error_details=e
-            )
+            return BearerFailure(error=TMError.CredentialsError, error_details=e)
 
-    def is_viable(self, bearer: BearerToken | None = None) -> bool:
+    def is_viable(self: Bearer, bearer: BearerToken | None = None) -> bool:
         if bearer is None:
-            bearer = self.token
+            bearer: BearerToken = self.token
         if bearer is None:
             return False
-        now = datetime.datetime.now(datetime.UTC)
-        expiry = now + bearer.expires_in
-        expired = expiry <= now
-        expires_soon = bearer.expires_in < self.conn_args.bearer_margin
+        now: datetime.datetime = datetime.datetime.now(datetime.UTC)
+        expiry: datetime.datetime = now + bearer.expires_in
+        expired: bool = expiry <= now
+        expires_soon: bool = bearer.expires_in < self.conn_args.bearer_margin
         return not (expired or expires_soon)
 
-    def ensure(self) -> BearerResult:
+    def ensure(self: Bearer) -> BearerResult:
         # If our in-memory bearer token is fine, return that
         if self.is_viable(self.token):
-            return BearerSuccess(
-                success=True,
-                token=self.token
-            )
+            return BearerSuccess(token=self.token)
 
         # If there is a local token, return that if it is valid,
         # delete it if it is not valid
@@ -125,10 +105,7 @@ class Bearer:
             else:
                 self.token = token
                 self.from_pickle = True
-                return BearerSuccess(
-                    success=True,
-                    token=token
-                )
+                return BearerSuccess(token=token)
 
         # If we haven't found a viable token yet, get a new one
         return self.update_bearer()
