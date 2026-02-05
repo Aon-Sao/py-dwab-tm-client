@@ -4,7 +4,7 @@ import pickle
 
 import requests
 
-from Types import BearerResult, ClientArgs, BearerFailure, TMError, BearerToken, BearerSuccess
+from Types import BearerResult, ClientArgs, BearerFailure, TMError, BearerToken, BearerSuccess, generic_to_string
 
 
 class Bearer:
@@ -13,6 +13,9 @@ class Bearer:
         self.conn_args: ClientArgs = conn_args
         self.token: BearerToken | None = None
         self.from_pickle: bool = False
+
+    def __str__(*args, indent="", **kwargs):
+        return generic_to_string(*args, **kwargs)
 
     def fetch_new(self: Bearer) -> BearerResult:
         if hasattr((auth := self.conn_args.authorization_args.authorization), "getBearer"):

@@ -1,4 +1,4 @@
-from Types import DivisionData, APIResult, numeric
+from Types import DivisionData, APIResult, numeric, generic_to_string
 
 
 class Division:
@@ -6,6 +6,9 @@ class Division:
         self.id: numeric = data.id
         self.name: str = data.name
         self.client = client  # of type Client, not imported to prevent circular imports
+
+    def __str__(*args, indent="", **kwargs):
+        return generic_to_string(*args, **kwargs, ignored_fields=["client"])
 
     def get_teams(self: Division) -> APIResult:
         rs: APIResult = self.client.get(f"/api/teams/{self.id}")

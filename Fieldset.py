@@ -1,3 +1,4 @@
+from Types import *
 import asyncio
 import json
 from asyncio import Task
@@ -10,12 +11,6 @@ from pubsub import pub
 from pubsub.core import Listener
 from websockets import ClientConnection
 
-from Types import FieldsetData, Field, APIResult, APISuccess, numeric, FieldsetEvent, FieldsetState, \
-    ActiveMatchType, AudienceDisplay, FieldsetMatchActiveNone, QueueState, FieldsetMatchActiveTimeout, \
-    FieldsetMatchActiveMatch, APIFailure, TMError, FieldsetCommand, StartMatch, EndMatchEarly, AbortMatch, \
-    ResetTimer, QueuePreviousMatch, QueueNextMatch, QueueSkillsType, QueueSkills, SetAudienceDisplay, \
-    FieldsetEventTypes, FieldMatchAssigned, FieldActivated, MatchStarted, MatchStopped, \
-    AudienceDisplayChanged
 
 
 class Fieldset:
@@ -24,12 +19,15 @@ class Fieldset:
         self.id: numeric = data.id
         self.name: str = data.name
         self.client = client  # Of type Client, not imported to prevent circular imports
-        self.websocket: websockets.ClientConnection | None = None
+        self.websocket: ClientConnection | None = None
         self.listeners: list[dict] = []
         self.state: FieldsetState = FieldsetState(
             match=FieldsetMatchActiveNone(),
             audience_display=AudienceDisplay.Blank
         )
+
+    def __str__(*args, indent="", **kwargs):
+        return generic_to_string(*args, **kwargs, ignored_fields=["client"])
 
     def get_fields(self: Fieldset) -> APIResult:
         rs: APIResult = self.client.get(f"/api/fieldsets/{self.id}/fields")
@@ -119,7 +117,7 @@ class Fieldset:
             # Subscribe basic send and receive handlers
             pub.subscribe(self.ws_receiver, "ws_receive")
             pub.subscribe(self.ws_transmitter, "ws_transmit")
-            return APISuccess(
+            return APISuccess[ClientConnection](
                 data=self.websocket,
                 cached=False
             )

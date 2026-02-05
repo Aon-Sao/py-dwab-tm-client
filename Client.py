@@ -21,19 +21,22 @@ class Client:
         self.endpoint_cache: dict[str, EndpointCacheMember] = dict()
         self.bearer: Bearer = Bearer(self.connection_string, self.connection_args)
 
+    def __str__(*args, indent="", **kwargs):
+        return generic_to_string(*args, **kwargs)
+
     def get_divisions(self: Client) -> APIResult:
         if not (rs:=self.get("/api/divisions")).success:
             return rs
         data: list[DivisionData] = [DivisionData(id=div["id"], name=div["name"]) for div in rs.data["divisions"]]
         data: list[Division] = [Division(self, div_dat) for div_dat in data]
-        return APISuccess(data=data,  cached=rs.cached)
+        return APISuccess[list[Division]](data=data,  cached=rs.cached)
 
     def get_fieldsets(self: Client) -> APIResult:
         if not (rs:=self.get("/api/fieldsets")).success:
             return rs
         data: list[FieldsetData] = [FieldsetData(id=div["id"], name=div["name"]) for div in rs.data["fieldSets"]]
         data: list[Fieldset] = [Fieldset(self, fs_data) for fs_data in data]
-        return APISuccess(data=data, cached=rs.cached)
+        return APISuccess[list[Fieldset]](data=data, cached=rs.cached)
 
     def get_teams(self: Client) -> APIResult:
         return self.get("/api/teams")
@@ -121,7 +124,7 @@ class Client:
                         error_details=response.json()
                     )
                 case 304:
-                    return APISuccess(
+                    return APISuccess[Any](
                         data=self.endpoint_cache[str(url)].data,
                         cached=True
                     )
@@ -132,7 +135,7 @@ class Client:
                             data=response.json(),
                             last_modified=RFC1123Date(response.headers.get("Last-Modified")).datetime_obj
                         )
-                    return APISuccess(
+                    return APISuccess[Any](
                         data=response.json(),
                         cached=False
                     )
