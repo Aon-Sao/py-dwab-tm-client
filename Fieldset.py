@@ -44,11 +44,11 @@ class Fieldset:
             case "audienceDisplayChanged":
                 self.state.audience_display = event.display
             case "fieldMatchAssigned":
-                is_none: bool = (event.match is None or len(event.match.keys()) == 0) and event.field_id is None
+                is_none: bool = event.match is None and event.field_id is None
                 if is_none:
                     self.state.match = FieldsetMatchActiveNone()
                 else:
-                    is_timeout: bool = len(event.match.keys()) == 0
+                    is_timeout: bool = event.match is None
                     if is_timeout:
                         self.state.match = FieldsetMatchActiveTimeout(
                             field_id=event.field_id,
@@ -133,9 +133,7 @@ class Fieldset:
             )
 
     @staticmethod
-    def get_fieldset_event(data_str: str) -> FieldsetEvent | None:
-        data: dict[str, Any] = json.loads(data_str)
-        data = {k: v if v else None for k, v in data.items()}
+    def get_fieldset_event(data: dict[str, Any]) -> FieldsetEvent | None:
         match data["type"]:
             case "fieldMatchAssigned":
                 return FieldMatchAssigned(
@@ -164,13 +162,14 @@ class Fieldset:
         if self.websocket is not None:
             # An infinite async iterator
             async for response in self.websocket:
-                pub.sendMessage("ws_receive", data=response)
+                # turn data into a FieldSetEvent
+                data: dict[str, Any] = json.loads(response)
+                data = {k: v if v else None for k, v in data.items()}
+                event: FieldsetEvent = Fieldset.get_fieldset_event(data)
+                pub.sendMessage("ws_receive", event=event)
         return None
 
-    def ws_receiver(self: Fieldset, data: str) -> None:
-        # turn data into a FieldSetEvent
-        event: FieldsetEvent = Fieldset.get_fieldset_event(data)
-        print(f"ws_receiver handling\n{event}")
+    def ws_receiver(self: Fieldset, event: FieldsetEvent) -> None:
         # update self state
         self.update_state(event)
         # emit the event type and data
@@ -178,7 +177,6 @@ class Fieldset:
         return None
 
     async def ws_transmitter(self: Fieldset, data: str) -> Task:
-        print(f"ws_transmitter handling \n{data}")
         async def speak(msg):
             with suppress(websockets.exceptions.ConnectionClosedOK):
                 await self.websocket.send(msg)
@@ -212,7 +210,7 @@ class Fieldset:
         if event_type not in FieldsetEventTypes:
             raise ValueError(f"event_type must be in {FieldsetEventTypes}")
         else:
-            listener: Listener = pub.subscribe(event_type, func)
+            listener: Listener = pub.subscribe(listener=func, topicName=event_type)
             self.listeners.append({ "topic": event_type, "listener": listener, "origin_func": func})
             return listener
 
